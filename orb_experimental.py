@@ -5,6 +5,8 @@ from datasets import load_dataset
 import matplotlib.pyplot as plt
 from matplotlib.widgets import Slider, Button
 import matplotlib
+from distorsions import reduce_brightness
+from filters import apply_clahe
 
 matplotlib.use('TkAgg')
 
@@ -23,32 +25,6 @@ def run_orb(img_rgb, nfeatures=800):
     output_img = cv2.drawKeypoints(img_rgb, keypoints, None, flags=0)
 
     return output_img, keypoints, descriptors
-
-
-def reduce_brightness(img_np, factor=0.25):
-    # Reduce brightness by scaling pixel values
-    # We use np.clip to prevent overflow/underflow outside the [0, 255] range
-    dark_img = np.clip(img_np * factor, 0, 255).astype(np.uint8)
-    return dark_img
-
-
-def apply_clahe(img_rgb):
-    # Convert RGB to LAB color space for better CLAHE application
-    img_lab = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2LAB)
-    
-    # Create CLAHE object with typical parameters
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-    
-    # Apply CLAHE only to the L channel (lightness)
-    l_channel = img_lab[:, :, 0]
-    l_clahe = clahe.apply(l_channel)
-    
-    # Merge the CLAHE-enhanced L channel back with A and B channels
-    img_lab[:, :, 0] = l_clahe
-    
-    # Convert back to RGB
-    img_clahe = cv2.cvtColor(img_lab, cv2.COLOR_LAB2RGB)
-    return img_clahe
 
 
 def main():
