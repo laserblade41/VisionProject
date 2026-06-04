@@ -45,8 +45,6 @@ def apply_distortion(img_np, distortion_name, strength, kernel_size):
         return apply_salt_and_pepper_noise(img_np, amount=strength)
     if distortion_name == "Motion Blur":
         return apply_motion_blur(img_np, kernel_size=kernel_size, angle=0)
-    if distortion_name == "Haze":
-        return apply_haze(img_np, intensity=strength)
     if distortion_name == "Fog":
         return apply_fog(img_np, intensity=strength, blur_ksize=kernel_size)
     return img_np
@@ -97,7 +95,7 @@ def main():
 
     distortion_selector = RadioButtons(
         ax_distortion,
-        ("None", "Brightness", "Salt & Pepper", "Motion Blur", "Haze", "Fog"),
+        ("None", "Brightness", "Salt & Pepper", "Motion Blur", "Fog"),
         active=1,
     )
     filter_selector = RadioButtons(
