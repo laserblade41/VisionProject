@@ -80,18 +80,12 @@ def main():
     plt.subplots_adjust(left=0.28, bottom=0.22, right=0.98, top=0.9, wspace=0.05, hspace=0.15)
     fig.suptitle("General Image Processing UI", fontsize=16)
 
-    # Precompute the original row because it never changes
+    # Original row will be computed inside render_preview using current ORB settings
     original_data = []  # store (keypoints, descriptors)
-    for col, img_np in enumerate(images_np):
-        orb_orig, kp_orig, desc_orig = run_orb(img_np)
-        original_data.append((kp_orig, desc_orig))
-        ax_original = axes[0, col]
-        ax_original.imshow(orb_orig)
-        ax_original.axis("off")
-        ax_original.set_title(f"Original\nKeypoints: {len(kp_orig)}")
 
     ax_distortion = plt.axes([0.03, 0.46, 0.20, 0.40], facecolor="#f6f1e8")
     ax_filter = plt.axes([0.03, 0.18, 0.20, 0.18], facecolor="#f6f1e8")
+    ax_orb = plt.axes([0.30, 0.18, 0.62, 0.03])
     ax_strength = plt.axes([0.30, 0.13, 0.62, 0.03])
     ax_kernel = plt.axes([0.30, 0.08, 0.62, 0.03])
 
@@ -122,6 +116,14 @@ def main():
         valinit=9,
         valstep=2,
     )
+    orb_slider = Slider(
+        ax=ax_orb,
+        label="ORB nfeatures",
+        valmin=100,
+        valmax=2000,
+        valinit=800,
+        valstep=50,
+    )
 
     def render_preview(event=None):
         distortion_name = distortion_selector.value_selected
@@ -129,11 +131,23 @@ def main():
         strength = float(strength_slider.val)
         kernel_size = int(kernel_slider.val)
 
+        # Recompute originals and previews using current ORB settings
+        nfeatures = int(orb_slider.val)
+        original_data = []
+        for col, img_np in enumerate(images_np):
+            orb_orig, kp_orig, desc_orig = run_orb(img_np, nfeatures=nfeatures)
+            original_data.append((kp_orig, desc_orig))
+            ax_original = axes[0, col]
+            ax_original.clear()
+            ax_original.imshow(orb_orig)
+            ax_original.axis("off")
+            ax_original.set_title(f"Original\nKeypoints: {len(kp_orig)}")
+
         for col, img_np in enumerate(images_np):
             distorted_img = apply_distortion(img_np, distortion_name, strength, kernel_size)
             filtered_img = apply_filter(distorted_img, filter_name, kernel_size)
 
-            orb_img_full, keypoints, desc_filtered = run_orb(filtered_img)
+            orb_img_full, keypoints, desc_filtered = run_orb(filtered_img, nfeatures=nfeatures)
 
             # Compare descriptors between original and filtered image
             orig_kp, orig_desc = original_data[col]
@@ -176,6 +190,7 @@ def main():
     filter_selector.on_clicked(render_preview)
     strength_slider.on_changed(render_preview)
     kernel_slider.on_changed(render_preview)
+    orb_slider.on_changed(render_preview)
 
     render_preview()
     plt.show()
