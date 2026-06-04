@@ -81,12 +81,14 @@ def main():
     fig.suptitle("General Image Processing UI", fontsize=16)
 
     # Precompute the original row because it never changes
+    original_data = []  # store (keypoints, descriptors)
     for col, img_np in enumerate(images_np):
-        original_img, original_kp, _ = run_orb(img_np)
+        orb_orig, kp_orig, desc_orig = run_orb(img_np)
+        original_data.append((kp_orig, desc_orig))
         ax_original = axes[0, col]
-        ax_original.imshow(original_img)
+        ax_original.imshow(orb_orig)
         ax_original.axis("off")
-        ax_original.set_title(f"Original\nKeypoints: {len(original_kp)}")
+        ax_original.set_title(f"Original\nKeypoints: {len(kp_orig)}")
 
     ax_distortion = plt.axes([0.03, 0.46, 0.20, 0.40], facecolor="#f6f1e8")
     ax_filter = plt.axes([0.03, 0.18, 0.20, 0.18], facecolor="#f6f1e8")
@@ -131,14 +133,41 @@ def main():
             distorted_img = apply_distortion(img_np, distortion_name, strength, kernel_size)
             filtered_img = apply_filter(distorted_img, filter_name, kernel_size)
 
-            orb_img, keypoints, _ = run_orb(filtered_img)
+            orb_img_full, keypoints, desc_filtered = run_orb(filtered_img)
+
+            # Compare descriptors between original and filtered image
+            orig_kp, orig_desc = original_data[col]
+            matches_count = 0
+            matched_keypoints = []
+            if orig_desc is not None and desc_filtered is not None and len(orig_desc) > 0 and len(desc_filtered) > 0:
+                bf = cv2.BFMatcher(cv2.NORM_HAMMING)
+                try:
+                    knn = bf.knnMatch(orig_desc, desc_filtered, k=2)
+                    good = [m for m, n in knn if m.distance < 0.75 * n.distance]
+                    matches_count = len(good)
+                    matched_train_idxs = [m.trainIdx for m in good]
+                    # keep unique and valid indices
+                    seen = set()
+                    for idx in matched_train_idxs:
+                        if idx not in seen and 0 <= idx < len(keypoints):
+                            matched_keypoints.append(keypoints[idx])
+                            seen.add(idx)
+                except Exception:
+                    matches_count = 0
+
+            # Draw only the matching keypoints on the processed image
+            try:
+                orb_matches_img = cv2.drawKeypoints(filtered_img, matched_keypoints, None, color=(0, 255, 0), flags=0)
+            except Exception:
+                # Fallback to drawing no keypoints if something goes wrong
+                orb_matches_img = orb_img_full
 
             ax_result = axes[1, col]
             ax_result.clear()
-            ax_result.imshow(orb_img)
+            ax_result.imshow(orb_matches_img)
             ax_result.axis("off")
             ax_result.set_title(
-                f"{distortion_name} + {filter_name}\nKeypoints: {len(keypoints)}"
+                f"{distortion_name} + {filter_name}\nKeypoints: {len(keypoints)} Matches: {matches_count}"
             )
 
         fig.canvas.draw_idle()
