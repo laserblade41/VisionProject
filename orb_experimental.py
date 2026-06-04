@@ -1,14 +1,23 @@
-import cv2
-import numpy as np
 import random
-from datasets import load_dataset
-import matplotlib.pyplot as plt
-from matplotlib.widgets import Slider, Button
-import matplotlib
-from distorsions import reduce_brightness
-from filters import apply_clahe
 
-matplotlib.use('TkAgg')
+import cv2
+import matplotlib
+
+matplotlib.use("TkAgg")
+
+import matplotlib.pyplot as plt
+import numpy as np
+from datasets import load_dataset
+from matplotlib.widgets import RadioButtons, Slider
+
+from distorsions import (
+    apply_fog,
+    apply_haze,
+    apply_motion_blur,
+    apply_salt_and_pepper_noise,
+    reduce_brightness,
+)
+from filters import apply_clahe, apply_median_filter, apply_restoration_filter
 
 
 def run_orb(img_rgb, nfeatures=800):
@@ -27,99 +36,121 @@ def run_orb(img_rgb, nfeatures=800):
     return output_img, keypoints, descriptors
 
 
+def apply_distortion(img_np, distortion_name, strength, kernel_size):
+    if distortion_name == "None":
+        return img_np
+    if distortion_name == "Brightness":
+        return reduce_brightness(img_np, factor=strength)
+    if distortion_name == "Salt & Pepper":
+        return apply_salt_and_pepper_noise(img_np, amount=strength)
+    if distortion_name == "Motion Blur":
+        return apply_motion_blur(img_np, kernel_size=kernel_size, angle=0)
+    if distortion_name == "Haze":
+        return apply_haze(img_np, intensity=strength)
+    if distortion_name == "Fog":
+        return apply_fog(img_np, intensity=strength, blur_ksize=kernel_size)
+    return img_np
+
+
+def apply_filter(img_np, filter_name, kernel_size):
+    if filter_name == "None":
+        return img_np
+    if filter_name == "Median":
+        return apply_median_filter(img_np, ksize=kernel_size)
+    if filter_name == "CLAHE":
+        return apply_clahe(img_np)
+    if filter_name == "Restoration":
+        return apply_restoration_filter(img_np, blur_ksize=kernel_size)
+    return img_np
+
+
 def main():
     # Load the tiny version of the ADE20K dataset
     ds = load_dataset("nateraw/ade20k-tiny", split="train")
-    N = len(ds)
+    image_count = len(ds)
 
     # Select 4 random images
     random.seed(42)
-    idxs = random.sample(range(N), 4)
+    idxs = random.sample(range(image_count), 4)
     samples = [ds[i] for i in idxs]
 
     # Convert PIL Images to numpy arrays once at the beginning to save processing time
-    images_np = [np.array(s["image"].convert("RGB")) for s in samples]
+    images_np = [np.array(sample["image"].convert("RGB")) for sample in samples]
 
-    # Create a 3x4 grid for plotting
-    fig, axes = plt.subplots(3, 4, figsize=(20, 15))
+    # Create a 2x4 grid for plotting: original images and selected output
+    fig, axes = plt.subplots(2, 4, figsize=(20, 10))
+    plt.subplots_adjust(left=0.28, bottom=0.22, right=0.98, top=0.9, wspace=0.05, hspace=0.15)
+    fig.suptitle("General Image Processing UI", fontsize=16)
 
-    # Make room at the bottom of the window for the slider and button
-    plt.subplots_adjust(bottom=0.2)
-
-    # Pre-calculate ORB for original images (top row) since they will never change
-    original_data = []  # Store (keypoints, descriptors) for each original image
+    # Precompute the original row because it never changes
     for col, img_np in enumerate(images_np):
-        orb_orig, kp_orig, desc_orig = run_orb(img_np)
-        original_data.append((kp_orig, desc_orig))
-        ax_orig = axes[0, col]
-        ax_orig.imshow(orb_orig)
-        ax_orig.axis("off")
-        ax_orig.set_title(f"Original\nKeypoints: {len(kp_orig)}")
+        original_img, original_kp, _ = run_orb(img_np)
+        ax_original = axes[0, col]
+        ax_original.imshow(original_img)
+        ax_original.axis("off")
+        ax_original.set_title(f"Original\nKeypoints: {len(original_kp)}")
 
-    # Define the update function that will be called when the button is clicked
-    def apply_changes(event):
-        # Fetch the current value from the slider
-        factor = factor_slider.val
+    ax_distortion = plt.axes([0.03, 0.46, 0.20, 0.40], facecolor="#f6f1e8")
+    ax_filter = plt.axes([0.03, 0.18, 0.20, 0.18], facecolor="#f6f1e8")
+    ax_strength = plt.axes([0.30, 0.13, 0.62, 0.03])
+    ax_kernel = plt.axes([0.30, 0.08, 0.62, 0.03])
 
-        for col, img_np in enumerate(images_np):
-            # Generate the low-light version based on the new factor
-            dark_img_np = reduce_brightness(img_np, factor=factor)
-
-            # Run ORB on the newly darkened image
-            orb_dark, kp_dark, desc_dark = run_orb(dark_img_np)
-
-            # Clear the previous image on the axis and plot the updated one
-            ax_dark = axes[1, col]
-            ax_dark.clear()
-            ax_dark.imshow(orb_dark)
-            ax_dark.axis("off")
-            ax_dark.set_title(f"Dark (Factor: {factor:.2f})\nKeypoints: {len(kp_dark)}")
-            
-            # Apply CLAHE correction to the darkened image
-            dark_clahe_img = apply_clahe(dark_img_np)
-            
-            # Run ORB on the CLAHE-corrected image
-            orb_clahe, kp_clahe, desc_clahe = run_orb(dark_clahe_img.astype(np.uint8))
-            
-            # Plot the CLAHE-corrected image
-            ax_clahe = axes[2, col]
-            ax_clahe.clear()
-            ax_clahe.imshow(orb_clahe)
-            ax_clahe.axis("off")
-            ax_clahe.set_title(f"Dark + CLAHE\nKeypoints: {len(kp_clahe)}")
-
-        # Redraw the matplotlib canvas to display the updates
-        fig.canvas.draw_idle()
-
-    # --- UI Elements Setup ---
-
-    # Define axes for the slider and button [left, bottom, width, height]
-    ax_slider = plt.axes([0.25, 0.05, 0.4, 0.03])
-    ax_button = plt.axes([0.7, 0.05, 0.1, 0.03])
-
-    # Create the interactive slider
-    factor_slider = Slider(
-        ax=ax_slider,
-        label='Darkness Factor ',
-        valmin=0.0,
-        valmax=1.0,
-        valinit=0.25,
-        valstep=0.01
+    distortion_selector = RadioButtons(
+        ax_distortion,
+        ("None", "Brightness", "Salt & Pepper", "Motion Blur", "Haze", "Fog"),
+        active=1,
+    )
+    filter_selector = RadioButtons(
+        ax_filter,
+        ("None", "Median", "CLAHE", "Restoration"),
+        active=2,
     )
 
-    # Create the Apply button
-    apply_btn = Button(ax_button, 'Apply', hovercolor='0.9')
+    strength_slider = Slider(
+        ax=ax_strength,
+        label="Strength",
+        valmin=0.0,
+        valmax=1.0,
+        valinit=0.35,
+        valstep=0.01,
+    )
+    kernel_slider = Slider(
+        ax=ax_kernel,
+        label="Kernel Size",
+        valmin=3,
+        valmax=31,
+        valinit=9,
+        valstep=2,
+    )
 
-    # Link the button click event to our apply_changes function
-    apply_btn.on_clicked(apply_changes)
+    def render_preview(event=None):
+        distortion_name = distortion_selector.value_selected
+        filter_name = filter_selector.value_selected
+        strength = float(strength_slider.val)
+        kernel_size = int(kernel_slider.val)
 
-    # Trigger an initial draw for the bottom row using a dummy event
-    class DummyEvent:
-        pass
+        for col, img_np in enumerate(images_np):
+            distorted_img = apply_distortion(img_np, distortion_name, strength, kernel_size)
+            filtered_img = apply_filter(distorted_img, filter_name, kernel_size)
 
-    apply_changes(DummyEvent())
+            orb_img, keypoints, _ = run_orb(filtered_img)
 
-    # Start the GUI event loop
+            ax_result = axes[1, col]
+            ax_result.clear()
+            ax_result.imshow(orb_img)
+            ax_result.axis("off")
+            ax_result.set_title(
+                f"{distortion_name} + {filter_name}\nKeypoints: {len(keypoints)}"
+            )
+
+        fig.canvas.draw_idle()
+
+    distortion_selector.on_clicked(render_preview)
+    filter_selector.on_clicked(render_preview)
+    strength_slider.on_changed(render_preview)
+    kernel_slider.on_changed(render_preview)
+
+    render_preview()
     plt.show()
 
 
