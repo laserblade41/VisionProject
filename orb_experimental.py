@@ -12,7 +12,6 @@ from matplotlib.widgets import RadioButtons, Slider
 
 from distorsions import (
     apply_fog,
-    apply_haze,
     apply_motion_blur,
     apply_salt_and_pepper_noise,
     reduce_brightness,
