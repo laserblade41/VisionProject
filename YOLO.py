@@ -8,6 +8,7 @@ import torch
 device = "cuda:0" if torch.cuda.is_available() else "cpu"
 print(f"Using device: {device}")
 model = YOLO("yolov8x.pt")
+model.to(device)
 
 def yolo_overlay(img_rgb, conf=0.25):
     # Run prediction on the image (use GPU if available)
