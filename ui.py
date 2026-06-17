@@ -37,6 +37,10 @@ class ImageProcessingUI:
         self.current_image_index = 0
         self.current_image_path = None
 
+        # Segmentation model cache
+        self.seg_model_tuple = None
+        self.seg_model_name = None
+
         self.setup_ui()
 
     def setup_ui(self):
@@ -78,7 +82,7 @@ class ImageProcessingUI:
             anchor=tk.W, pady=(10, 5)
         )
         self.technique_var = tk.StringVar(value="ORB")
-        techniques = ["ORB", "YOLO"]
+        techniques = ["ORB", "YOLO", "Segmentation"]
         for tech in techniques:
             ttk.Radiobutton(
                 left_frame, text=tech, variable=self.technique_var, value=tech
@@ -163,6 +167,24 @@ class ImageProcessingUI:
             orient=tk.HORIZONTAL,
         ).pack(fill=tk.X, pady=(0, 10))
         ttk.Label(left_frame, textvariable=self.yolo_conf).pack(anchor=tk.W, pady=(0, 10))
+
+        # Segmentation parameters (SegFormer)
+        ttk.Label(left_frame, text="Segmentation Parameters", font=("Arial", 11, "bold")).pack(
+            anchor=tk.W, pady=(10, 5)
+        )
+        # Common SegFormer model choices
+        seg_models = [
+            'nvidia/segformer-b1-ade20k-512-512',
+            'nvidia/segformer-b0-ade20k-512-512',
+            'nvidia/segformer-b2-ade20k-512-512',
+            'nvidia/segformer-b3-ade20k-512-512'
+        ]
+        self.seg_model_var = tk.StringVar(value=seg_models[0])
+        seg_combobox = ttk.Combobox(left_frame, values=seg_models, textvariable=self.seg_model_var)
+        seg_combobox.pack(fill=tk.X, pady=(0, 5))
+        ttk.Button(left_frame, text="Preload SegFormer Model", command=self.preload_seg_model).pack(fill=tk.X, pady=(0, 5))
+        self.seg_status_label = ttk.Label(left_frame, text="Segmentation model: not loaded", font=("Arial", 9))
+        self.seg_status_label.pack(anchor=tk.W, pady=(0, 10))
 
         # Process button
         ttk.Button(left_frame, text="Process", command=self.process_image).pack(
@@ -379,6 +401,40 @@ class ImageProcessingUI:
                         conf = float(box.conf)
                         results_text += f"  {i + 1}. {cls_name}: {conf:.2%}\n"
 
+            elif technique == "Segmentation":
+                # Lazy import to avoid hard dependency at startup
+                try:
+                    from semantic_seg import load_seg_model, predict_seg_mask
+                except Exception as e:
+                    processed_img = filtered_img
+                    results_text = f"Segmentation import error: {e}\n"
+                else:
+                    model_name = getattr(self, 'seg_model_var', tk.StringVar(value='nvidia/segformer-b1-ade20k-512-512')).get()
+                    try:
+                        # Load model if not cached or different model requested
+                        if getattr(self, 'seg_model_tuple', None) is None or getattr(self, 'seg_model_name', None) != model_name:
+                            self.seg_model_tuple = load_seg_model(model_name)
+                            self.seg_model_name = model_name
+                            self.root.after(0, lambda: self.seg_status_label.config(text=f"Model loaded: {model_name}"))
+
+                        mask, overlay = predict_seg_mask(self.seg_model_tuple, filtered_img, conf=self.yolo_conf.get())
+                        if overlay is not None:
+                            processed_img = overlay
+                        elif mask is not None:
+                            processed_img = cv2.cvtColor(mask, cv2.COLOR_GRAY2RGB)
+                        else:
+                            processed_img = filtered_img
+
+                        coverage = 0.0
+                        if mask is not None:
+                            coverage = 100.0 * (mask > 0).sum() / mask.size
+                        results_text = f"Segmentation Results:\n"
+                        results_text += f"  Mask coverage: {coverage:.2f}%\n"
+                        results_text += f"  Model: {model_name}\n"
+                    except Exception as e:
+                        processed_img = filtered_img
+                        results_text = f"Segmentation error: {e}\n"
+
             self.processed_image = processed_img
 
             # Build full results text
@@ -406,14 +462,42 @@ class ImageProcessingUI:
         self.results_text.delete("1.0", tk.END)
         
         # Reset distortion checkboxes and sliders
-        for key, var in self.distortion_vars.items():
+        for _, var in self.distortion_vars.items():
             var.set(False)
         
         # Reset filter checkboxes
-        for key, var in self.filter_vars.items():
+        for _, var in self.filter_vars.items():
             var.set(False)
         
+        # Do not unload preloaded segmentation model, only reset UI state
+        if getattr(self, 'seg_status_label', None):
+            self.seg_status_label.config(text=(f"Model loaded: {self.seg_model_name}" if self.seg_model_name else "Segmentation model: not loaded"))
+        
         messagebox.showinfo("Reset", "All processing results and settings have been reset")
+
+    def preload_seg_model(self):
+        """Preload SegFormer model in background to reduce latency during processing"""
+        model_name = getattr(self, 'seg_model_var', tk.StringVar(value='nvidia/segformer-b1-ade20k-512-512')).get()
+        # Run loading in background thread
+        thread = threading.Thread(target=self._preload_worker, args=(model_name,))
+        thread.start()
+
+    def _preload_worker(self, model_name):
+        try:
+            from semantic_seg import load_seg_model
+        except Exception as e:
+            self.root.after(0, lambda: messagebox.showerror("SegModel Import Error", str(e)))
+            return
+        try:
+            self.root.after(0, lambda: self.results_text.delete("1.0", tk.END))
+            self.root.after(0, lambda: self.results_text.insert(tk.END, f"Loading segmentation model: {model_name}..."))
+            model_tuple = load_seg_model(model_name)
+            self.seg_model_tuple = model_tuple
+            self.seg_model_name = model_name
+            self.root.after(0, lambda: self.seg_status_label.config(text=f"Model loaded: {model_name}"))
+            self.root.after(0, lambda: self.results_text.delete("1.0", tk.END))
+        except Exception as e:
+            self.root.after(0, lambda: messagebox.showerror("SegModel Load Error", str(e)))
 
     def _update_ui(self, processed_img, results_text):
         self.display_image(processed_img, self.canvas_processed)

@@ -7,6 +7,7 @@ import cv2
 from YOLO import yolo_overlay
 from distortions import apply_random_distortion
 from filters import apply_restoration_filter, apply_median_filter, apply_clahe
+from semantic_seg import load_seg_model, predict_seg_mask, iou_mask, device as seg_device
 
 # Utilities to extract detections from ultralytics result object
 
@@ -48,6 +49,9 @@ def extract_detections(r, conf_thresh=0.25):
         pass
     return detections
 
+
+# Segmentation helpers moved to semantic_seg.py
+
 # Simple comparison: baseline classes must be present in trial classes
 
 def is_correct_detection(baseline_dets, trial_dets):
@@ -60,7 +64,7 @@ def is_correct_detection(baseline_dets, trial_dets):
 # apply_random_distortion(img, strength, seed=None) -> RGB uint8 image
 
 
-def run_evaluation(image_path, trials=50, conf=0.25, strength=0.6, require_exact_match=False, save_json=None, use_filter=False, filter_type='restoration', seed=None):
+def run_evaluation(image_path, trials=50, conf=0.25, strength=0.6, require_exact_match=False, save_json=None, use_filter=False, filter_type='restoration', seed=None, segment=False, seg_model_path='yolov8m-seg.pt', iou_threshold=0.5, save_seg_overlays=None):
     # Load image (BGR -> RGB)
     bgr = cv2.imread(image_path)
     if bgr is None:
@@ -71,6 +75,27 @@ def run_evaluation(image_path, trials=50, conf=0.25, strength=0.6, require_exact
     _, r_base = yolo_overlay(img_rgb, conf=conf)
     baseline_dets = extract_detections(r_base, conf_thresh=conf)
     print(f"Baseline detections (classes): {set([d[0] for d in baseline_dets])}")
+
+    # Setup segmentation model if requested
+    seg_model = None
+    baseline_seg_mask = None
+    seg_correct = 0
+    if segment:
+        print(f"Loading segmentation model: {seg_model_path} on {seg_device}")
+        seg_model = load_seg_model(seg_model_path)
+        baseline_seg_mask, baseline_overlay = predict_seg_mask(seg_model, img_rgb, conf=conf, device=seg_device)
+        if baseline_seg_mask is not None:
+            print(f"Baseline segmentation mask shape: {baseline_seg_mask.shape}")
+            # save baseline overlay optionally
+            if save_seg_overlays and baseline_overlay is not None:
+                try:
+                    out_path = f"{save_seg_overlays}_baseline.png"
+                    cv2.imwrite(out_path, cv2.cvtColor(baseline_overlay, cv2.COLOR_RGB2BGR))
+                    print(f"Saved baseline segmentation overlay to {out_path}")
+                except Exception:
+                    pass
+        else:
+            print("Warning: could not extract baseline segmentation mask from model result")
 
     correct = 0
     trial_records = []
@@ -89,19 +114,45 @@ def run_evaluation(image_path, trials=50, conf=0.25, strength=0.6, require_exact
             elif filter_type == 'clahe':
                 img_dist = apply_clahe(img_dist)
 
+        # Detection
         _, r_trial = yolo_overlay(img_dist, conf=conf)
         trial_dets = extract_detections(r_trial, conf_thresh=conf)
-        ok = is_correct_detection(baseline_dets, trial_dets)
+        det_ok = is_correct_detection(baseline_dets, trial_dets)
         if require_exact_match:
-            ok = ok and (set([d[0] for d in baseline_dets]) == set([d[0] for d in trial_dets]))
-        if ok:
+            det_ok = det_ok and (set([d[0] for d in baseline_dets]) == set([d[0] for d in trial_dets]))
+        if det_ok:
             correct += 1
+
+        # Segmentation (optional)
+        seg_iou = None
+        seg_ok = None
+        if segment and seg_model is not None and baseline_seg_mask is not None:
+            try:
+                trial_mask, trial_overlay = predict_seg_mask(seg_model, img_dist, conf=conf, device=seg_device)
+                seg_iou = iou_mask(baseline_seg_mask, trial_mask)
+                seg_ok = seg_iou >= float(iou_threshold)
+                if seg_ok:
+                    seg_correct += 1
+                # optionally save overlay for some trials
+                if save_seg_overlays and (i < 5 or (i+1) % 50 == 0) and trial_overlay is not None:
+                    try:
+                        out_path = f"{save_seg_overlays}_trial_{i+1}.png"
+                        cv2.imwrite(out_path, cv2.cvtColor(trial_overlay, cv2.COLOR_RGB2BGR))
+                    except Exception:
+                        pass
+            except Exception:
+                seg_iou = None
+                seg_ok = False
+
         trial_records.append({
             'trial': i+1,
-            'ok': bool(ok),
+            'det_ok': bool(det_ok),
             'trial_classes': list(set([int(d[0]) for d in trial_dets])),
-            'trial_count': len(trial_dets)
+            'trial_count': len(trial_dets),
+            'seg_iou': None if seg_iou is None else float(seg_iou),
+            'seg_ok': None if seg_ok is None else bool(seg_ok)
         })
+
         if (i+1) % 10 == 0:
             print(f"Completed {i+1}/{trials} trials...")
 
@@ -110,13 +161,21 @@ def run_evaluation(image_path, trials=50, conf=0.25, strength=0.6, require_exact
     summary = {
         'image': image_path,
         'trials': trials,
-        'correct': correct,
-        'percent': pct,
+        'detection_correct': correct,
+        'detection_percent': pct,
         'conf_threshold': conf,
         'strength': strength,
         'time_seconds': elapsed,
         'baseline_classes': list(set([int(d[0]) for d in baseline_dets]))
     }
+
+    if segment:
+        seg_pct = 100.0 * seg_correct / trials if trials > 0 else 0.0
+        summary['segmentation_correct'] = seg_correct
+        summary['segmentation_percent'] = seg_pct
+        summary['seg_model'] = seg_model_path
+        summary['iou_threshold'] = iou_threshold
+
     print("\nEvaluation summary:")
     print(json.dumps(summary, indent=2))
     if save_json:
@@ -138,6 +197,10 @@ if __name__ == '__main__':
     parser.add_argument('--use-filter', action='store_true', help='Apply restoration/filter from filters.py to distorted images before detection')
     parser.add_argument('--filter-type', choices=['restoration','median','clahe'], default='restoration', help='Which filter to apply when --use-filter is set')
     parser.add_argument('--seed', type=int, help='Optional base seed for reproducible distortions')
+    parser.add_argument('--segment', action='store_true', help='Run semantic segmentation alongside detection')
+    parser.add_argument('--seg-model', default='yolov8m-seg.pt', help='Segmentation model weights or path')
+    parser.add_argument('--iou', type=float, default=0.5, help='IoU threshold to count segmentation as correct')
+    parser.add_argument('--save-seg-overlays', help='Prefix to save segmentation overlay images (baseline and some trials)')
     args = parser.parse_args()
 
-    run_evaluation(args.image, trials=args.trials, conf=args.conf, strength=args.strength, require_exact_match=args.exact, save_json=args.out, use_filter=args.use_filter, filter_type=args.filter_type, seed=args.seed)
+    run_evaluation(args.image, trials=args.trials, conf=args.conf, strength=args.strength, require_exact_match=args.exact, save_json=args.out, use_filter=args.use_filter, filter_type=args.filter_type, seed=args.seed, segment=args.segment, seg_model_path=args.seg_model, iou_threshold=args.iou, save_seg_overlays=args.save_seg_overlays)
