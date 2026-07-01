@@ -182,4 +182,3 @@ cython_debug/
 
 # Ignore the model files
 *.pt
-*.pth
