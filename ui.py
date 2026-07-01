@@ -6,7 +6,7 @@ from PIL import Image, ImageTk
 import threading
 from pathlib import Path
 from ORB import run_orb
-from YOLO import yolo_overlay
+from YOLO import yolo_overlay, model as yolo_model, device as yolo_device
 from distorsions import (
     reduce_brightness,
     apply_salt_and_pepper_noise,
@@ -40,6 +40,10 @@ class ImageProcessingUI:
         # Segmentation model cache
         self.seg_model_tuple = None
         self.seg_model_name = None
+
+        # YOLO comparison cache
+        self.last_yolo_results = None
+        self.last_yolo_input = None
 
         self.setup_ui()
 
@@ -167,6 +171,10 @@ class ImageProcessingUI:
             orient=tk.HORIZONTAL,
         ).pack(fill=tk.X, pady=(0, 10))
         ttk.Label(left_frame, textvariable=self.yolo_conf).pack(anchor=tk.W, pady=(0, 10))
+        self.yolo_compare_btn = ttk.Button(
+            left_frame, text="Enhance & Compare YOLO Detections", command=self.open_yolo_comparison, state=tk.DISABLED
+        )
+        self.yolo_compare_btn.pack(fill=tk.X, pady=(0, 10))
 
         # Segmentation parameters (SegFormer)
         ttk.Label(left_frame, text="Segmentation Parameters", font=("Arial", 11, "bold")).pack(
@@ -393,6 +401,8 @@ class ImageProcessingUI:
                 processed_img, yolo_results = yolo_overlay(
                     filtered_img, conf=self.yolo_conf.get()
                 )
+                self.last_yolo_results = yolo_results
+                self.last_yolo_input = filtered_img.copy()
                 results_text = f"YOLO Detection Results:\n"
                 results_text += f"  Objects detected: {len(yolo_results.boxes)}\n"
                 if len(yolo_results.boxes) > 0:
@@ -455,6 +465,8 @@ class ImageProcessingUI:
         # Clear images
         self.distorted_image = None
         self.processed_image = None
+        self.last_yolo_results = None
+        self.last_yolo_input = None
         
         # Clear canvases
         self.canvas_distorted.delete("all")
@@ -468,6 +480,10 @@ class ImageProcessingUI:
         # Reset filter checkboxes
         for _, var in self.filter_vars.items():
             var.set(False)
+        
+        # Disable yolo comparison button
+        if hasattr(self, 'yolo_compare_btn'):
+            self.yolo_compare_btn.config(state=tk.DISABLED)
         
         # Do not unload preloaded segmentation model, only reset UI state
         if getattr(self, 'seg_status_label', None):
@@ -503,6 +519,464 @@ class ImageProcessingUI:
         self.display_image(processed_img, self.canvas_processed)
         self.results_text.delete("1.0", tk.END)
         self.results_text.insert(tk.END, results_text)
+        
+        if self.technique_var.get() == "YOLO" and getattr(self, "last_yolo_results", None) is not None:
+            self.yolo_compare_btn.config(state=tk.NORMAL)
+        else:
+            self.yolo_compare_btn.config(state=tk.DISABLED)
+
+    def open_yolo_comparison(self):
+        if getattr(self, "last_yolo_results", None) is None or len(self.last_yolo_results.boxes) == 0:
+            messagebox.showwarning("Warning", "No YOLO detections are available. Please select YOLO and click Process first.")
+            return
+        YOLOComparisonDialog(self, self.original_image, self.distorted_image, self.last_yolo_results, self.last_yolo_input)
+
+
+class YOLOComparisonDialog:
+    def __init__(self, parent, original_img, distorted_img, yolo_results, yolo_input):
+        self.parent = parent
+        self.original_img = original_img
+        self.distorted_img = distorted_img if distorted_img is not None else original_img
+        self.yolo_results = yolo_results
+        self.yolo_input = yolo_input
+        
+        self.win = tk.Toplevel(parent.root)
+        self.win.title("YOLO Object Detection: Image Enhancement & Comparison Tool")
+        self.win.geometry("1200x850")
+        self.win.transient(parent.root)
+        self.win.grab_set()
+        
+        self.detected_boxes = []
+        if yolo_results and len(yolo_results.boxes) > 0:
+            for i, box in enumerate(yolo_results.boxes):
+                cls_idx = int(box.cls[0].cpu().numpy())
+                cls_name = yolo_results.names[cls_idx]
+                conf = float(box.conf[0].cpu().numpy())
+                xyxy = box.xyxy[0].cpu().numpy()
+                self.detected_boxes.append({
+                    'index': i,
+                    'class_idx': cls_idx,
+                    'class_name': cls_name,
+                    'conf': conf,
+                    'xyxy': xyxy
+                })
+        
+        self.setup_ui()
+
+    def setup_ui(self):
+        self.notebook = ttk.Notebook(self.win)
+        self.notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        self.tab1 = ttk.Frame(self.notebook)
+        self.notebook.add(self.tab1, text="Crop-Level Enhancement & Comparison")
+        
+        self.tab2 = ttk.Frame(self.notebook)
+        self.notebook.add(self.tab2, text="Full-Image Enhancement & Comparison")
+        
+        self.setup_tab1()
+        self.setup_tab2()
+
+    def setup_tab1(self):
+        ctrl_frame = ttk.Frame(self.tab1)
+        ctrl_frame.pack(side=tk.LEFT, fill=tk.Y, padx=10, pady=10)
+        
+        ttk.Label(ctrl_frame, text="Crop Evaluation Controls", font=("Arial", 11, "bold")).pack(anchor=tk.W, pady=(0, 10))
+        
+        ttk.Label(ctrl_frame, text="Select Detected Object:").pack(anchor=tk.W, pady=(5, 2))
+        self.object_combo = ttk.Combobox(ctrl_frame, state="readonly", width=30)
+        self.object_combo.pack(fill=tk.X, pady=(0, 10))
+        
+        obj_values = []
+        for box in self.detected_boxes:
+            obj_values.append(f"Object {box['index'] + 1}: {box['class_name']} ({box['conf']:.1%})")
+        self.object_combo['values'] = obj_values
+        if obj_values:
+            self.object_combo.current(0)
+            
+        ttk.Label(ctrl_frame, text="Crop Enhancement Method:").pack(anchor=tk.W, pady=(5, 2))
+        self.enhance_combo = ttk.Combobox(ctrl_frame, state="readonly", width=30)
+        self.enhance_combo.pack(fill=tk.X, pady=(0, 10))
+        self.enhance_combo['values'] = [
+            "None (Original Crop)",
+            "CLAHE (Contrast Enhancement)",
+            "Sharpening (Sharpen)",
+            "Histogram Equalization",
+            "Gamma Correction (Gamma=1.5)",
+            "Gamma Correction (Gamma=0.6)",
+            "Bilateral Denoise",
+            "Combined (CLAHE + Sharpen)"
+        ]
+        self.enhance_combo.current(0)
+        
+        self.object_combo.bind("<<ComboboxSelected>>", lambda e: self.update_crop_evaluation())
+        self.enhance_combo.bind("<<ComboboxSelected>>", lambda e: self.update_crop_evaluation())
+        
+        self.status_label = ttk.Label(ctrl_frame, text="Ready", font=("Arial", 9, "italic"))
+        self.status_label.pack(anchor=tk.W, pady=(20, 2))
+        
+        display_frame = ttk.Frame(self.tab1)
+        display_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        images_frame = ttk.Frame(display_frame)
+        images_frame.pack(fill=tk.BOTH, expand=True)
+        
+        c1_frame = ttk.LabelFrame(images_frame, text="Original Crop (Clean)")
+        c1_frame.grid(row=0, column=0, padx=5, pady=5, sticky="nsew")
+        self.lbl_orig_crop = ttk.Label(c1_frame, borderwidth=1, relief="solid")
+        self.lbl_orig_crop.pack(padx=10, pady=10)
+        
+        c2_frame = ttk.LabelFrame(images_frame, text="Distorted/Input Crop")
+        c2_frame.grid(row=0, column=1, padx=5, pady=5, sticky="nsew")
+        self.lbl_dist_crop = ttk.Label(c2_frame, borderwidth=1, relief="solid")
+        self.lbl_dist_crop.pack(padx=10, pady=10)
+        
+        c3_frame = ttk.LabelFrame(images_frame, text="Enhanced Crop")
+        c3_frame.grid(row=0, column=2, padx=5, pady=5, sticky="nsew")
+        self.lbl_enh_crop = ttk.Label(c3_frame, borderwidth=1, relief="solid")
+        self.lbl_enh_crop.pack(padx=10, pady=10)
+        
+        images_frame.grid_columnconfigure(0, weight=1)
+        images_frame.grid_columnconfigure(1, weight=1)
+        images_frame.grid_columnconfigure(2, weight=1)
+        
+        table_frame = ttk.LabelFrame(display_frame, text="Quantitative & Class Detection Comparison")
+        table_frame.pack(fill=tk.BOTH, expand=True, pady=(10, 0))
+        
+        self.tree = ttk.Treeview(table_frame, columns=("Metric", "Original (Clean)", "Distorted/Input", "Enhanced"), show="headings", height=6)
+        self.tree.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        
+        self.tree.heading("Metric", text="Metric / Attribute")
+        self.tree.heading("Original (Clean)", text="Original (Clean)")
+        self.tree.heading("Distorted/Input", text="Distorted / Input")
+        self.tree.heading("Enhanced", text="Enhanced")
+        
+        self.tree.column("Metric", width=200, anchor=tk.W)
+        self.tree.column("Original (Clean)", width=150, anchor=tk.CENTER)
+        self.tree.column("Distorted/Input", width=150, anchor=tk.CENTER)
+        self.tree.column("Enhanced", width=150, anchor=tk.CENTER)
+        
+        if self.detected_boxes:
+            self.update_crop_evaluation()
+
+    def setup_tab2(self):
+        ctrl_frame = ttk.Frame(self.tab2)
+        ctrl_frame.pack(side=tk.LEFT, fill=tk.Y, padx=10, pady=10)
+        
+        ttk.Label(ctrl_frame, text="Full-Image Enhancement", font=("Arial", 11, "bold")).pack(anchor=tk.W, pady=(0, 10))
+        
+        ttk.Label(ctrl_frame, text="Enhancement Method:").pack(anchor=tk.W, pady=(5, 2))
+        self.tab2_enhance_combo = ttk.Combobox(ctrl_frame, state="readonly", width=30)
+        self.tab2_enhance_combo.pack(fill=tk.X, pady=(0, 10))
+        self.tab2_enhance_combo['values'] = [
+            "None (Original/Distorted)",
+            "CLAHE (Contrast Enhancement)",
+            "Sharpening (Sharpen)",
+            "Histogram Equalization",
+            "Gamma Correction (Gamma=1.5)",
+            "Gamma Correction (Gamma=0.6)",
+            "Bilateral Denoise",
+            "Combined (CLAHE + Sharpen)"
+        ]
+        self.tab2_enhance_combo.current(1)
+        
+        self.tab2_run_btn = ttk.Button(ctrl_frame, text="Enhance & Run YOLO", command=self.run_full_image_yolo)
+        self.tab2_run_btn.pack(fill=tk.X, pady=10)
+        
+        self.tab2_status_label = ttk.Label(ctrl_frame, text="Ready", font=("Arial", 9, "italic"))
+        self.tab2_status_label.pack(anchor=tk.W, pady=(5, 10))
+        
+        ttk.Label(ctrl_frame, text="Evaluation Summary:").pack(anchor=tk.W, pady=(10, 2))
+        self.tab2_results_text = tk.Text(ctrl_frame, height=20, width=32, wrap=tk.WORD)
+        self.tab2_results_text.pack(fill=tk.BOTH, expand=True)
+        
+        display_frame = ttk.Frame(self.tab2)
+        display_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        img_frame = ttk.Frame(display_frame)
+        img_frame.pack(fill=tk.BOTH, expand=True)
+        
+        f1_frame = ttk.LabelFrame(img_frame, text="YOLO on Distorted Image")
+        f1_frame.grid(row=0, column=0, padx=5, pady=5, sticky="nsew")
+        self.tab2_lbl_dist = ttk.Label(f1_frame, borderwidth=1, relief="solid")
+        self.tab2_lbl_dist.pack(padx=5, pady=5, fill=tk.BOTH, expand=True)
+        
+        f2_frame = ttk.LabelFrame(img_frame, text="YOLO on Enhanced Image")
+        f2_frame.grid(row=0, column=1, padx=5, pady=5, sticky="nsew")
+        self.tab2_lbl_enh = ttk.Label(f2_frame, borderwidth=1, relief="solid")
+        self.tab2_lbl_enh.pack(padx=5, pady=5, fill=tk.BOTH, expand=True)
+        
+        img_frame.grid_columnconfigure(0, weight=1)
+        img_frame.grid_columnconfigure(1, weight=1)
+        img_frame.grid_rowconfigure(0, weight=1)
+
+    def display_crop(self, img_np, label_widget):
+        if img_np is None or img_np.size == 0:
+            label_widget.config(image='', text="No Image")
+            return
+        h, w = img_np.shape[:2]
+        max_size = 220
+        scale = min(max_size / w, max_size / h)
+        new_w, new_h = max(1, int(w * scale)), max(1, int(h * scale))
+        img_resized = cv2.resize(img_np, (new_w, new_h))
+        img_pil = Image.fromarray(img_resized)
+        photo = ImageTk.PhotoImage(img_pil)
+        label_widget.config(image=photo, text="")
+        label_widget.image = photo
+
+    def display_full_img(self, img_np, label_widget):
+        if img_np is None or img_np.size == 0:
+            label_widget.config(image='', text="No Image")
+            return
+        h, w = img_np.shape[:2]
+        max_width, max_height = 420, 280
+        scale = min(max_width / w, max_height / h)
+        new_w, new_h = max(1, int(w * scale)), max(1, int(h * scale))
+        img_resized = cv2.resize(img_np, (new_w, new_h))
+        img_pil = Image.fromarray(img_resized)
+        photo = ImageTk.PhotoImage(img_pil)
+        label_widget.config(image=photo, text="")
+        label_widget.image = photo
+
+    def get_crop(self, img, box):
+        x1, y1, x2, y2 = map(int, box['xyxy'])
+        h, w = img.shape[:2]
+        x1 = max(0, min(x1, w - 1))
+        y1 = max(0, min(y1, h - 1))
+        x2 = max(0, min(x2, w))
+        y2 = max(0, min(y2, h))
+        return img[y1:y2, x1:x2]
+
+    def apply_enhancement(self, crop, method):
+        if method.startswith("None"):
+            return crop.copy()
+        elif method.startswith("CLAHE"):
+            img_lab = cv2.cvtColor(crop, cv2.COLOR_RGB2LAB)
+            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+            img_lab[:, :, 0] = clahe.apply(img_lab[:, :, 0])
+            return cv2.cvtColor(img_lab, cv2.COLOR_LAB2RGB)
+        elif method.startswith("Sharpening"):
+            blurred = cv2.GaussianBlur(crop, (5, 5), 0)
+            sharpened = cv2.addWeighted(crop, 2.5, blurred, -1.5, 0)
+            return np.clip(sharpened, 0, 255).astype(np.uint8)
+        elif method.startswith("Histogram Equalization"):
+            img_yuv = cv2.cvtColor(crop, cv2.COLOR_RGB2YUV)
+            img_yuv[:, :, 0] = cv2.equalizeHist(img_yuv[:, :, 0])
+            return cv2.cvtColor(img_yuv, cv2.COLOR_YUV2RGB)
+        elif "Gamma=1.5" in method:
+            invGamma = 1.0 / 1.5
+            table = np.array([((i / 255.0) ** invGamma) * 255 for i in np.arange(0, 256)]).astype("uint8")
+            return cv2.LUT(crop, table)
+        elif "Gamma=0.6" in method:
+            invGamma = 1.0 / 0.6
+            table = np.array([((i / 255.0) ** invGamma) * 255 for i in np.arange(0, 256)]).astype("uint8")
+            return cv2.LUT(crop, table)
+        elif method.startswith("Bilateral Denoise"):
+            return cv2.bilateralFilter(crop, 9, 75, 75)
+        elif method.startswith("Combined"):
+            img_lab = cv2.cvtColor(crop, cv2.COLOR_RGB2LAB)
+            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+            img_lab[:, :, 0] = clahe.apply(img_lab[:, :, 0])
+            clahe_crop = cv2.cvtColor(img_lab, cv2.COLOR_LAB2RGB)
+            blurred = cv2.GaussianBlur(clahe_crop, (5, 5), 0)
+            sharpened = cv2.addWeighted(clahe_crop, 2.5, blurred, -1.5, 0)
+            return np.clip(sharpened, 0, 255).astype(np.uint8)
+        return crop.copy()
+
+    def calc_sharpness(self, img):
+        try:
+            gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+            return cv2.Laplacian(gray, cv2.CV_64F).var()
+        except Exception:
+            return 0.0
+
+    def calc_contrast(self, img):
+        try:
+            gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+            return np.std(gray)
+        except Exception:
+            return 0.0
+
+    def calc_brightness(self, img):
+        try:
+            gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+            return np.mean(gray)
+        except Exception:
+            return 0.0
+
+    def find_best_match(self, yolo_results, target_class_idx):
+        if len(yolo_results.boxes) == 0:
+            return "None", 0.0
+        target_boxes = [b for b in yolo_results.boxes if int(b.cls[0].cpu().numpy()) == target_class_idx]
+        if target_boxes:
+            best_box = max(target_boxes, key=lambda b: float(b.conf[0].cpu().numpy()))
+            cls_idx = int(best_box.cls[0].cpu().numpy())
+            cls_name = yolo_results.names[cls_idx]
+            conf = float(best_box.conf[0].cpu().numpy())
+            return cls_name, conf
+        else:
+            best_box = max(yolo_results.boxes, key=lambda b: float(b.conf[0].cpu().numpy()))
+            cls_idx = int(best_box.cls[0].cpu().numpy())
+            cls_name = yolo_results.names[cls_idx]
+            conf = float(best_box.conf[0].cpu().numpy())
+            return f"{cls_name} (diff)", conf
+
+    def update_crop_evaluation(self):
+        box_idx = self.object_combo.current()
+        method = self.enhance_combo.get()
+        if box_idx < 0 or box_idx >= len(self.detected_boxes):
+            return
+        self.status_label.config(text="Evaluating crop with YOLO...")
+        box = self.detected_boxes[box_idx]
+        thread = threading.Thread(target=self._eval_worker, args=(box, method))
+        thread.start()
+
+    def _eval_worker(self, box, method):
+        try:
+            orig_crop = self.get_crop(self.original_img, box)
+            dist_crop = self.get_crop(self.distorted_img, box)
+            enh_crop = self.apply_enhancement(dist_crop, method)
+            
+            metrics = {
+                'orig': {
+                    'sharpness': self.calc_sharpness(orig_crop),
+                    'contrast': self.calc_contrast(orig_crop),
+                    'brightness': self.calc_brightness(orig_crop),
+                    'class': box['class_name'],
+                    'conf': box['conf']
+                },
+                'dist': {
+                    'sharpness': self.calc_sharpness(dist_crop),
+                    'contrast': self.calc_contrast(dist_crop),
+                    'brightness': self.calc_brightness(dist_crop),
+                },
+                'enh': {
+                    'sharpness': self.calc_sharpness(enh_crop),
+                    'contrast': self.calc_contrast(enh_crop),
+                    'brightness': self.calc_brightness(enh_crop),
+                }
+            }
+            
+            target_class_idx = box['class_idx']
+            
+            dist_results = yolo_model.predict(dist_crop, conf=0.01, verbose=False, device=yolo_device)[0]
+            dist_class, dist_conf = self.find_best_match(dist_results, target_class_idx)
+            metrics['dist']['class'] = dist_class
+            metrics['dist']['conf'] = dist_conf
+            
+            enh_results = yolo_model.predict(enh_crop, conf=0.01, verbose=False, device=yolo_device)[0]
+            enh_class, enh_conf = self.find_best_match(enh_results, target_class_idx)
+            metrics['enh']['class'] = enh_class
+            metrics['enh']['conf'] = enh_conf
+            
+            self.win.after(0, self._update_crop_ui, orig_crop, dist_crop, enh_crop, metrics)
+        except Exception as e:
+            self.win.after(0, lambda: messagebox.showerror("Evaluation Error", f"Error evaluating crop: {e}"))
+
+    def _update_crop_ui(self, orig_crop, dist_crop, enh_crop, metrics):
+        self.display_crop(orig_crop, self.lbl_orig_crop)
+        self.display_crop(dist_crop, self.lbl_dist_crop)
+        self.display_crop(enh_crop, self.lbl_enh_crop)
+        
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+            
+        self.tree.insert("", "end", values=(
+            "YOLO Class Detected",
+            metrics['orig']['class'],
+            metrics['dist']['class'],
+            metrics['enh']['class']
+        ))
+        self.tree.insert("", "end", values=(
+            "YOLO Confidence",
+            f"{metrics['orig']['conf']:.2%}",
+            f"{metrics['dist']['conf']:.2%}",
+            f"{metrics['enh']['conf']:.2%}"
+        ))
+        self.tree.insert("", "end", values=(
+            "Sharpness (Laplacian Var)",
+            f"{metrics['orig']['sharpness']:.1f}",
+            f"{metrics['dist']['sharpness']:.1f}",
+            f"{metrics['enh']['sharpness']:.1f}"
+        ))
+        self.tree.insert("", "end", values=(
+            "Contrast (Intensity SD)",
+            f"{metrics['orig']['contrast']:.1f}",
+            f"{metrics['dist']['contrast']:.1f}",
+            f"{metrics['enh']['contrast']:.1f}"
+        ))
+        self.tree.insert("", "end", values=(
+            "Average Brightness (Mean)",
+            f"{metrics['orig']['brightness']:.1f}",
+            f"{metrics['dist']['brightness']:.1f}",
+            f"{metrics['enh']['brightness']:.1f}"
+        ))
+        self.status_label.config(text="Ready")
+
+    def run_full_image_yolo(self):
+        method = self.tab2_enhance_combo.get()
+        self.tab2_status_label.config(text="Processing full image & running YOLO...")
+        self.tab2_run_btn.config(state=tk.DISABLED)
+        thread = threading.Thread(target=self._full_image_worker, args=(method,))
+        thread.start()
+
+    def _full_image_worker(self, method):
+        try:
+            enhanced_full = self.apply_enhancement(self.distorted_img, method)
+            from YOLO import yolo_overlay
+            dist_overlay, dist_res = yolo_overlay(self.distorted_img, conf=self.parent.yolo_conf.get())
+            enh_overlay, enh_res = yolo_overlay(enhanced_full, conf=self.parent.yolo_conf.get())
+            
+            stats_text = "Detection Statistics:\n\n"
+            stats_text += f"DISTORTED IMAGE:\n"
+            stats_text += f"  Total objects: {len(dist_res.boxes)}\n"
+            for i, box in enumerate(dist_res.boxes):
+                c_idx = int(box.cls[0].cpu().numpy())
+                c_name = dist_res.names[c_idx]
+                c_conf = float(box.conf[0].cpu().numpy())
+                stats_text += f"  - {c_name}: {c_conf:.1%}\n"
+                
+            stats_text += f"\nENHANCED IMAGE ({method}):\n"
+            stats_text += f"  Total objects: {len(enh_res.boxes)}\n"
+            for i, box in enumerate(enh_res.boxes):
+                c_idx = int(box.cls[0].cpu().numpy())
+                c_name = enh_res.names[c_idx]
+                c_conf = float(box.conf[0].cpu().numpy())
+                stats_text += f"  - {c_name}: {c_conf:.1%}\n"
+                
+            dist_classes = [int(b.cls[0].cpu().numpy()) for b in dist_res.boxes]
+            enh_classes = [int(b.cls[0].cpu().numpy()) for b in enh_res.boxes]
+            new_classes = [c for c in enh_classes if c not in dist_classes]
+            lost_classes = [c for c in dist_classes if c not in enh_classes]
+            
+            stats_text += f"\nCOMPARATIVE SUMMARY:\n"
+            if len(enh_res.boxes) > len(dist_res.boxes):
+                stats_text += f"  ✔ Detected {len(enh_res.boxes) - len(dist_res.boxes)} more object(s) after enhancement!\n"
+            elif len(enh_res.boxes) < len(dist_res.boxes):
+                stats_text += f"  ⚠ Detected {len(dist_res.boxes) - len(enh_res.boxes)} fewer object(s) after enhancement.\n"
+            else:
+                stats_text += f"  • Same number of objects detected.\n"
+                
+            if new_classes:
+                new_names = [enh_res.names[c] for c in set(new_classes)]
+                stats_text += f"  • Newly detected classes: {', '.join(new_names)}\n"
+            if lost_classes:
+                lost_names = [dist_res.names[c] for c in set(lost_classes)]
+                stats_text += f"  • Lost classes: {', '.join(lost_names)}\n"
+                
+            self.win.after(0, self._update_full_image_ui, dist_overlay, enh_overlay, stats_text)
+        except Exception as e:
+            self.win.after(0, lambda: messagebox.showerror("Full Image Error", f"Error processing full image: {e}"))
+            self.win.after(0, lambda: self.tab2_run_btn.config(state=tk.NORMAL))
+
+    def _update_full_image_ui(self, dist_overlay, enh_overlay, stats_text):
+        self.display_full_img(dist_overlay, self.tab2_lbl_dist)
+        self.display_full_img(enh_overlay, self.tab2_lbl_enh)
+        
+        self.tab2_results_text.delete("1.0", tk.END)
+        self.tab2_results_text.insert(tk.END, stats_text)
+        
+        self.tab2_status_label.config(text="Ready")
+        self.tab2_run_btn.config(state=tk.NORMAL)
 
 
 if __name__ == "__main__":
