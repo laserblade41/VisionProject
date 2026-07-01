@@ -598,13 +598,15 @@ class YOLOComparisonDialog:
         self.enhance_combo.pack(fill=tk.X, pady=(0, 10))
         self.enhance_combo['values'] = [
             "None (Original Crop)",
+            "Median Filter (Noise Removal)",
             "CLAHE (Contrast Enhancement)",
             "Sharpening (Sharpen)",
             "Histogram Equalization",
             "Gamma Correction (Gamma=1.5)",
             "Gamma Correction (Gamma=0.6)",
             "Bilateral Denoise",
-            "Combined (CLAHE + Sharpen)"
+            "Combined (CLAHE + Sharpen)",
+            "Median + CLAHE + Sharpen"
         ]
         self.enhance_combo.current(0)
         
@@ -669,13 +671,15 @@ class YOLOComparisonDialog:
         self.tab2_enhance_combo.pack(fill=tk.X, pady=(0, 10))
         self.tab2_enhance_combo['values'] = [
             "None (Original/Distorted)",
+            "Median Filter (Noise Removal)",
             "CLAHE (Contrast Enhancement)",
             "Sharpening (Sharpen)",
             "Histogram Equalization",
             "Gamma Correction (Gamma=1.5)",
             "Gamma Correction (Gamma=0.6)",
             "Bilateral Denoise",
-            "Combined (CLAHE + Sharpen)"
+            "Combined (CLAHE + Sharpen)",
+            "Median + CLAHE + Sharpen"
         ]
         self.tab2_enhance_combo.current(1)
         
@@ -695,18 +699,27 @@ class YOLOComparisonDialog:
         img_frame = ttk.Frame(display_frame)
         img_frame.pack(fill=tk.BOTH, expand=True)
         
+        # Col 1: Original Image Clean YOLO output
+        f0_frame = ttk.LabelFrame(img_frame, text="YOLO on Original Image (Clean)")
+        f0_frame.grid(row=0, column=0, padx=5, pady=5, sticky="nsew")
+        self.tab2_lbl_orig = ttk.Label(f0_frame, borderwidth=1, relief="solid")
+        self.tab2_lbl_orig.pack(padx=5, pady=5, fill=tk.BOTH, expand=True)
+        
+        # Col 2: Distorted YOLO output
         f1_frame = ttk.LabelFrame(img_frame, text="YOLO on Distorted Image")
-        f1_frame.grid(row=0, column=0, padx=5, pady=5, sticky="nsew")
+        f1_frame.grid(row=0, column=1, padx=5, pady=5, sticky="nsew")
         self.tab2_lbl_dist = ttk.Label(f1_frame, borderwidth=1, relief="solid")
         self.tab2_lbl_dist.pack(padx=5, pady=5, fill=tk.BOTH, expand=True)
         
+        # Col 3: Enhanced YOLO output
         f2_frame = ttk.LabelFrame(img_frame, text="YOLO on Enhanced Image")
-        f2_frame.grid(row=0, column=1, padx=5, pady=5, sticky="nsew")
+        f2_frame.grid(row=0, column=2, padx=5, pady=5, sticky="nsew")
         self.tab2_lbl_enh = ttk.Label(f2_frame, borderwidth=1, relief="solid")
         self.tab2_lbl_enh.pack(padx=5, pady=5, fill=tk.BOTH, expand=True)
         
         img_frame.grid_columnconfigure(0, weight=1)
         img_frame.grid_columnconfigure(1, weight=1)
+        img_frame.grid_columnconfigure(2, weight=1)
         img_frame.grid_rowconfigure(0, weight=1)
 
     def display_crop(self, img_np, label_widget):
@@ -728,7 +741,7 @@ class YOLOComparisonDialog:
             label_widget.config(image='', text="No Image")
             return
         h, w = img_np.shape[:2]
-        max_width, max_height = 420, 280
+        max_width, max_height = 290, 200
         scale = min(max_width / w, max_height / h)
         new_w, new_h = max(1, int(w * scale)), max(1, int(h * scale))
         img_resized = cv2.resize(img_np, (new_w, new_h))
@@ -770,10 +783,21 @@ class YOLOComparisonDialog:
             invGamma = 1.0 / 0.6
             table = np.array([((i / 255.0) ** invGamma) * 255 for i in np.arange(0, 256)]).astype("uint8")
             return cv2.LUT(crop, table)
+        elif method.startswith("Median Filter"):
+            return cv2.medianBlur(crop, 5)
         elif method.startswith("Bilateral Denoise"):
             return cv2.bilateralFilter(crop, 9, 75, 75)
         elif method.startswith("Combined"):
             img_lab = cv2.cvtColor(crop, cv2.COLOR_RGB2LAB)
+            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+            img_lab[:, :, 0] = clahe.apply(img_lab[:, :, 0])
+            clahe_crop = cv2.cvtColor(img_lab, cv2.COLOR_LAB2RGB)
+            blurred = cv2.GaussianBlur(clahe_crop, (5, 5), 0)
+            sharpened = cv2.addWeighted(clahe_crop, 2.5, blurred, -1.5, 0)
+            return np.clip(sharpened, 0, 255).astype(np.uint8)
+        elif "Median + CLAHE + Sharpen" in method:
+            med = cv2.medianBlur(crop, 5)
+            img_lab = cv2.cvtColor(med, cv2.COLOR_RGB2LAB)
             clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
             img_lab[:, :, 0] = clahe.apply(img_lab[:, :, 0])
             clahe_crop = cv2.cvtColor(img_lab, cv2.COLOR_LAB2RGB)
@@ -923,11 +947,20 @@ class YOLOComparisonDialog:
         try:
             enhanced_full = self.apply_enhancement(self.distorted_img, method)
             from YOLO import yolo_overlay
+            orig_overlay, orig_res = yolo_overlay(self.original_img, conf=self.parent.yolo_conf.get())
             dist_overlay, dist_res = yolo_overlay(self.distorted_img, conf=self.parent.yolo_conf.get())
             enh_overlay, enh_res = yolo_overlay(enhanced_full, conf=self.parent.yolo_conf.get())
             
             stats_text = "Detection Statistics:\n\n"
-            stats_text += f"DISTORTED IMAGE:\n"
+            stats_text += f"ORIGINAL IMAGE (CLEAN):\n"
+            stats_text += f"  Total objects: {len(orig_res.boxes)}\n"
+            for i, box in enumerate(orig_res.boxes):
+                c_idx = int(box.cls[0].cpu().numpy())
+                c_name = orig_res.names[c_idx]
+                c_conf = float(box.conf[0].cpu().numpy())
+                stats_text += f"  - {c_name}: {c_conf:.1%}\n"
+
+            stats_text += f"\nDISTORTED IMAGE:\n"
             stats_text += f"  Total objects: {len(dist_res.boxes)}\n"
             for i, box in enumerate(dist_res.boxes):
                 c_idx = int(box.cls[0].cpu().numpy())
@@ -943,6 +976,7 @@ class YOLOComparisonDialog:
                 c_conf = float(box.conf[0].cpu().numpy())
                 stats_text += f"  - {c_name}: {c_conf:.1%}\n"
                 
+            orig_classes = [int(b.cls[0].cpu().numpy()) for b in orig_res.boxes]
             dist_classes = [int(b.cls[0].cpu().numpy()) for b in dist_res.boxes]
             enh_classes = [int(b.cls[0].cpu().numpy()) for b in enh_res.boxes]
             new_classes = [c for c in enh_classes if c not in dist_classes]
@@ -958,17 +992,21 @@ class YOLOComparisonDialog:
                 
             if new_classes:
                 new_names = [enh_res.names[c] for c in set(new_classes)]
-                stats_text += f"  • Newly detected classes: {', '.join(new_names)}\n"
+                stats_text += f"  • Newly detected classes (vs Distorted): {', '.join(new_names)}\n"
             if lost_classes:
                 lost_names = [dist_res.names[c] for c in set(lost_classes)]
-                stats_text += f"  • Lost classes: {', '.join(lost_names)}\n"
+                stats_text += f"  • Lost classes (vs Distorted): {', '.join(lost_names)}\n"
+
+            restored_classes = [c for c in enh_classes if c in orig_classes]
+            stats_text += f"  • Restored {len(set(restored_classes))} of {len(set(orig_classes))} original object classes.\n"
                 
-            self.win.after(0, self._update_full_image_ui, dist_overlay, enh_overlay, stats_text)
+            self.win.after(0, self._update_full_image_ui, orig_overlay, dist_overlay, enh_overlay, stats_text)
         except Exception as e:
             self.win.after(0, lambda: messagebox.showerror("Full Image Error", f"Error processing full image: {e}"))
             self.win.after(0, lambda: self.tab2_run_btn.config(state=tk.NORMAL))
 
-    def _update_full_image_ui(self, dist_overlay, enh_overlay, stats_text):
+    def _update_full_image_ui(self, orig_overlay, dist_overlay, enh_overlay, stats_text):
+        self.display_full_img(orig_overlay, self.tab2_lbl_orig)
         self.display_full_img(dist_overlay, self.tab2_lbl_dist)
         self.display_full_img(enh_overlay, self.tab2_lbl_enh)
         
