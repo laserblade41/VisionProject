@@ -32,7 +32,7 @@ class SmartRestorationModel(nn.Module):
     
     def _restore_motion_blur(self, img):
         # Use a restoration filter that combines unsharp masking and CLAHE
-        return apply_restoration_filter(img)
+        return apply_clahe(img)
     
     def _restore_fog(self, img):
         # Use a restoration filter that combines unsharp masking and CLAHE
