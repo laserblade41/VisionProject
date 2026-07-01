@@ -88,5 +88,90 @@
 דוח עבודה עיבוד ספרתי של תמונה
 \end_layout
 
+\begin_layout Section
+שיטות עיבוד התמונה שבחרנו:
+\end_layout
+
+\begin_layout Subsection
+\begin_inset Formula $\text{ORB}$
+\end_inset
+
+:
+\end_layout
+
+\begin_layout Subsection
+\begin_inset Formula $\text{YOLO}$
+\end_inset
+
+:
+\end_layout
+
+\begin_layout Subsection
+\begin_inset Formula $\text{Semantic Segmentation}$
+\end_inset
+
+:
+\end_layout
+
+\begin_layout Section
+\begin_inset Formula $\text{Distortions}$
+\end_inset
+
+:
+\end_layout
+
+\begin_layout Subsection
+\begin_inset Formula $\text{Reduce Brightness}$
+\end_inset
+
+:
+\end_layout
+
+\begin_layout Subsection
+\begin_inset Formula $\text{Salt \& Pepper}$
+\end_inset
+
+:
+\end_layout
+
+\begin_layout Subsection
+\begin_inset Formula $\text{Motion Blur}$
+\end_inset
+
+:
+\end_layout
+
+\begin_layout Subsection
+\begin_inset Formula $\text{Fog}$
+\end_inset
+
+:
+\end_layout
+
+\begin_layout Section
+שחזורים:
+\end_layout
+
+\begin_layout Subsection
+\begin_inset Formula $\text{CLAHE}$
+\end_inset
+
+:
+\end_layout
+
+\begin_layout Subsection
+\begin_inset Formula $\text{Median Filter}$
+\end_inset
+
+:
+\end_layout
+
+\begin_layout Subsection
+\begin_inset Formula $\text{Restoration}$
+\end_inset
+
+:
+\end_layout
+
 \end_body
 \end_document
