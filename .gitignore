@@ -182,3 +182,8 @@ cython_debug/
 
 # Ignore the model files
 *.pt
+
+# Ignore the test image
+*.png
+*.jpg
+*.jpeg

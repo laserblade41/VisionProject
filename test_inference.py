@@ -7,7 +7,10 @@ from torchvision import transforms
 from PIL import Image
 
 # Import the model architecture from your dataset preparation file
+# Import your custom distortion functions
+from distorsions import reduce_brightness, apply_salt_and_pepper_noise, apply_motion_blur, apply_fog
 from dataset_preparation import SmartRestorationModel
+import random
 
 # Define the text labels corresponding to the output classes
 CLASS_LABELS = {
@@ -86,5 +89,24 @@ if __name__ == "__main__":
         print("Usage: python test_inference.py <path_to_your_test_image.jpg>")
         sys.exit(1)
         
-    test_image = sys.argv[1]
-    run_inference(test_image)
+    test_image_path = sys.argv[1]
+    # Load the image from file
+    raw_img = cv2.imread(test_image_path)
+    if raw_img is None:
+        print(f"Error: Could not read image at '{test_image_path}'. Please check the path.")
+        sys.exit(1)
+        
+    # before running the model, apply a random distortion to the test image
+    distortions = {
+        "LowLight": lambda img: reduce_brightness(img, factor=0.25),
+        "SaltAndPepper": lambda img: apply_salt_and_pepper_noise(img, amount=0.3),
+        "MotionBlur": lambda img: apply_motion_blur(img, kernel_size=9),
+        "Fog": lambda img: apply_fog(img, intensity=0.5)
+    }
+    distortion_name, distortion_func = random.choice(list(distortions.items()))
+    print(f"Applying random distortion: {distortion_name}...")
+    distorted_img = distortion_func(raw_img)
+    
+    # also save the distorted image
+    cv2.imwrite("distorted_image.jpg", distorted_img) 
+    run_inference("distorted_image.jpg")
