@@ -182,10 +182,10 @@ class ImageProcessingUI:
         )
         # Common SegFormer model choices
         seg_models = [
-            'nvidia/segformer-b1-ade20k-512-512',
-            'nvidia/segformer-b0-ade20k-512-512',
-            'nvidia/segformer-b2-ade20k-512-512',
-            'nvidia/segformer-b3-ade20k-512-512'
+            'nvidia/segformer-b1-finetuned-ade-512-512',
+            'nvidia/segformer-b0-finetuned-ade-512-512',
+            'nvidia/segformer-b2-finetuned-ade-512-512',
+            'nvidia/segformer-b3-finetuned-ade-512-512'
         ]
         self.seg_model_var = tk.StringVar(value=seg_models[0])
         seg_combobox = ttk.Combobox(left_frame, values=seg_models, textvariable=self.seg_model_var)
@@ -419,7 +419,7 @@ class ImageProcessingUI:
                     processed_img = filtered_img
                     results_text = f"Segmentation import error: {e}\n"
                 else:
-                    model_name = getattr(self, 'seg_model_var', tk.StringVar(value='nvidia/segformer-b1-ade20k-512-512')).get()
+                    model_name = getattr(self, 'seg_model_var', tk.StringVar(value='nvidia/segformer-b1-finetuned-ade-512-512')).get()
                     try:
                         # Load model if not cached or different model requested
                         if getattr(self, 'seg_model_tuple', None) is None or getattr(self, 'seg_model_name', None) != model_name:
@@ -493,7 +493,7 @@ class ImageProcessingUI:
 
     def preload_seg_model(self):
         """Preload SegFormer model in background to reduce latency during processing"""
-        model_name = getattr(self, 'seg_model_var', tk.StringVar(value='nvidia/segformer-b1-ade20k-512-512')).get()
+        model_name = getattr(self, 'seg_model_var', tk.StringVar(value='nvidia/segformer-b1-finetuned-ade-512-512')).get()
         # Run loading in background thread
         thread = threading.Thread(target=self._preload_worker, args=(model_name,))
         thread.start()

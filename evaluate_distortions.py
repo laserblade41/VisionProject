@@ -64,7 +64,7 @@ def is_correct_detection(baseline_dets, trial_dets):
 # apply_random_distortion(img, strength, seed=None) -> RGB uint8 image
 
 
-def run_evaluation(image_path, trials=50, conf=0.25, strength=0.6, require_exact_match=False, save_json=None, use_filter=False, filter_type='restoration', seed=None, segment=False, seg_model_path='yolov8m-seg.pt', iou_threshold=0.5, save_seg_overlays=None):
+def run_evaluation(image_path, trials=50, conf=0.25, strength=0.6, require_exact_match=False, save_json=None, use_filter=False, filter_type='restoration', seed=None, segment=False, seg_model_path='nvidia/segformer-b1-finetuned-ade-512-512', iou_threshold=0.5, save_seg_overlays=None):
     # Load image (BGR -> RGB)
     bgr = cv2.imread(image_path)
     if bgr is None:
@@ -83,7 +83,7 @@ def run_evaluation(image_path, trials=50, conf=0.25, strength=0.6, require_exact
     if segment:
         print(f"Loading segmentation model: {seg_model_path} on {seg_device}")
         seg_model = load_seg_model(seg_model_path)
-        baseline_seg_mask, baseline_overlay = predict_seg_mask(seg_model, img_rgb, conf=conf, device=seg_device)
+        baseline_seg_mask, baseline_overlay = predict_seg_mask(seg_model, img_rgb, conf=conf, device_override=seg_device)
         if baseline_seg_mask is not None:
             print(f"Baseline segmentation mask shape: {baseline_seg_mask.shape}")
             # save baseline overlay optionally
@@ -128,7 +128,7 @@ def run_evaluation(image_path, trials=50, conf=0.25, strength=0.6, require_exact
         seg_ok = None
         if segment and seg_model is not None and baseline_seg_mask is not None:
             try:
-                trial_mask, trial_overlay = predict_seg_mask(seg_model, img_dist, conf=conf, device=seg_device)
+                trial_mask, trial_overlay = predict_seg_mask(seg_model, img_dist, conf=conf, device_override=seg_device)
                 seg_iou = iou_mask(baseline_seg_mask, trial_mask)
                 seg_ok = seg_iou >= float(iou_threshold)
                 if seg_ok:
@@ -198,7 +198,7 @@ if __name__ == '__main__':
     parser.add_argument('--filter-type', choices=['restoration','median','clahe'], default='restoration', help='Which filter to apply when --use-filter is set')
     parser.add_argument('--seed', type=int, help='Optional base seed for reproducible distortions')
     parser.add_argument('--segment', action='store_true', help='Run semantic segmentation alongside detection')
-    parser.add_argument('--seg-model', default='yolov8m-seg.pt', help='Segmentation model weights or path')
+    parser.add_argument('--seg-model', default='nvidia/segformer-b1-finetuned-ade-512-512', help='Segmentation model weights or path')
     parser.add_argument('--iou', type=float, default=0.5, help='IoU threshold to count segmentation as correct')
     parser.add_argument('--save-seg-overlays', help='Prefix to save segmentation overlay images (baseline and some trials)')
     args = parser.parse_args()
