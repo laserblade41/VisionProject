@@ -83,19 +83,7 @@ def run_inference(image_path, weights_path="distortion_classifier.pth"):
     plt.tight_layout()
     plt.show()
 
-if __name__ == "__main__":
-    # Ensure a local image path argument was given via the console
-    if len(sys.argv) < 2:
-        print("Usage: python test_inference.py <path_to_your_test_image.jpg>")
-        sys.exit(1)
-        
-    test_image_path = sys.argv[1]
-    # Load the image from file
-    raw_img = cv2.imread(test_image_path)
-    if raw_img is None:
-        print(f"Error: Could not read image at '{test_image_path}'. Please check the path.")
-        sys.exit(1)
-        
+def apply_random_distortion(image_np):
     # before running the model, apply a random distortion to the test image
     distortions = {
         "LowLight": lambda img: reduce_brightness(img, factor=0.25),
@@ -106,7 +94,34 @@ if __name__ == "__main__":
     distortion_name, distortion_func = random.choice(list(distortions.items()))
     print(f"Applying random distortion: {distortion_name}...")
     distorted_img = distortion_func(raw_img)
+    return distorted_img
+
+if __name__ == "__main__":
+    # Ensure a local image path argument was given via the console
+    if len(sys.argv) < 2:
+        print("Usage: python test_inference.py <path_to_your_test_image.jpg>")
+        sys.exit(1)
+        
+    test_image_path = sys.argv[1]
+
+    apply_distortion = True  # Default behavior is to apply a random distortion
+
+    # check if the user cancelled the noise application, if so, just run inference on the original image
+    if len(sys.argv) > 2 and sys.argv[2] == "--no-distortion":
+        print("Running inference on the original image without applying any random distortion...")
+        apply_distortion = False
+
+
+    # Load the image from file
+    raw_img = cv2.imread(test_image_path)
+    if raw_img is None:
+        print(f"Error: Could not read image at '{test_image_path}'. Please check the path.")
+        sys.exit(1)
+    
+    distorted_img = raw_img
+    if apply_distortion:
+        distorted_img = apply_random_distortion(raw_img)
     
     # also save the distorted image
-    cv2.imwrite("distorted_image.jpg", distorted_img) 
+    cv2.imwrite("distorted_image.jpg", distorted_img)
     run_inference("distorted_image.jpg")

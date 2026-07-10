@@ -26,7 +26,7 @@ class SmartRestorationModel(nn.Module):
     def __init__(self):
         super(SmartRestorationModel, self).__init__()
         # Load a lightweight, pre-trained feature extractor
-        self.classifier = models.resnet18(pretrained=True)
+        self.classifier = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
         
         # 5 output classes: Clean (0), Low Light (1), Salt-and-Pepper (2), Motion Blur (3), Fog (4)
         num_ftrs = self.classifier.fc.in_features
