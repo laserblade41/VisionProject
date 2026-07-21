@@ -185,6 +185,5 @@ cython_debug/
 *.pth
 
 # Ignore the test image
-*.png
 *.jpg
 *.jpeg
