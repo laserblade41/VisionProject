@@ -42,3 +42,10 @@ def apply_restoration_filter(img_rgb, blur_ksize=5, sharpen_amount=1.5):
     sharpened_img = cv2.addWeighted(img_rgb, 1.0 + sharpen_amount, blurred_img, -sharpen_amount, 0)
     sharpened_img = np.clip(sharpened_img, 0, 255).astype(np.uint8)
     return apply_clahe(sharpened_img)
+
+
+def apply_bilateral_filter(img, d=15, sigma_color=150, sigma_space=150):
+    """
+    Applies a Bilateral Filter to reduce noise while preserving strong edges.
+    """
+    return cv2.bilateralFilter(img, d, sigma_color, sigma_space)

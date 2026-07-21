@@ -86,3 +86,16 @@ def apply_fog(img_np, intensity=0.5, blur_ksize=15):
     foggy_img = cv2.addWeighted(blurred_img, 1.0 - intensity, white_overlay, intensity, 0)
     return foggy_img.astype(np.uint8)
 
+
+def apply_gaussian_noise(img, mean=0, std=25):
+    """
+    Adds Gaussian noise to the input image.
+    The 'std' parameter controls the intensity of the noise.
+    """
+    row, col, ch = img.shape
+    gauss = np.random.normal(mean, std, (row, col, ch))
+    gauss = gauss.reshape(row, col, ch)
+    noisy_img = img + gauss
+
+    # Clip values to ensure they remain in the valid 0-255 range for image pixels
+    return np.clip(noisy_img, 0, 255).astype(np.uint8)

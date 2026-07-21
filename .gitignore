@@ -182,6 +182,7 @@ cython_debug/
 
 # Ignore the model files
 *.pt
+*.pth
 
 # Ignore the test image
 *.png
