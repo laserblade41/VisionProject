@@ -18,7 +18,7 @@ This project delivers an empirical evaluation of the **robustness**, **restorati
 
 We systematically quantify performance degradation across multiple distortion types—**Gaussian Noise**, **Salt & Pepper Noise**, and **Motion Blur**—measuring degradation as a function of **Signal-to-Noise Ratio (SNR in dB)** and per-class metrics. Furthermore, we implement and benchmark two mitigation strategies:
 - **Classical Image Enhancement / Pre-Processing Filters**: Median filtering, Bilateral filtering, and Unsharp Masking Restoration, alongside a **Smart Adaptive Restoration Model** using a ResNet-18 classifier (`smart_restoration.py`).
-- **Deep Learning Fine-Tuning**: Fine-tuning YOLO and DeepLabV3 models directly on multi-level distorted data using ground-truth and pseudo-labeled annotations (`train_gaussian.py`, `train_semantic_VLab.py`).
+- **Deep Learning Fine-Tuning**: Fine-tuning YOLO and DeepLabV3 models directly on multi-level distorted data using ground-truth and pseudo-labeled annotations (`train_semantic_VLab.py`).
 
 ---
 
