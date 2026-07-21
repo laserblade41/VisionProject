@@ -9,16 +9,16 @@
 
 ## Executive Summary
 
-Real-world computer vision systems deployed in autonomous vehicles, robotics, and surveillance frequently encounter environmental degradation such as sensor noise, atmospheric blur, and impulse interference. Traditional vision models trained on clean benchmark images experience severe performance degradation when exposed to these out-of-distribution distortions.
+Real-world computer vision systems deployed in autonomous vehicles, robotics, and surveillance frequently encounter environmental degradation such as sensor noise, atmospheric blur, and impulse interference. This project delivers an empirical evaluation of the **robustness**, **restoration**, and **adaptation** of three fundamental computer vision tasks across both classical and deep learning paradigms:
 
-This project delivers an empirical evaluation of the **robustness**, **restoration**, and **adaptation** of three fundamental computer vision tasks across both classical and deep learning paradigms:
 1. **Low-Level Vision (Feature Detection)**: Evaluated using **ORB (Oriented FAST and Rotated BRIEF)**.
-2. **High-Level Object Recognition**: Evaluated using **YOLOv8n / YOLOv26n**.
+2. **High-Level Object Recognition**: Evaluated using **YOLOv8n / YOLOv8n**.
 3. **High-Level Dense Scene Understanding**: Evaluated using **DeepLabV3-ResNet50 / SegFormer-B0/B1**.
 
-We systematically quantify performance degradation across multiple distortion types—**Gaussian Noise**, **Salt & Pepper Noise**, and **Motion Blur**—measuring degradation as a function of **Signal-to-Noise Ratio (SNR in dB)** and per-class metrics. Furthermore, we implement and benchmark two mitigation strategies:
-- **Classical Image Enhancement / Pre-Processing Filters**: Median filtering, Bilateral filtering, and Unsharp Masking Restoration, alongside a **Smart Adaptive Restoration Model** using a ResNet-18 classifier (`smart_restoration.py`).
-- **Deep Learning Fine-Tuning**: Fine-tuning YOLO and DeepLabV3 models directly on multi-level distorted data using ground-truth and pseudo-labeled annotations (`train_semantic_VLab.py`).
+We systematically quantify performance degradation across multiple distortion types—**Gaussian Noise**, **Salt & Pepper Noise**, and **Motion Blur**—measuring degradation as a function of **Signal-to-Noise Ratio (SNR)**. Our evaluation encompasses:
+
+- **Classical Image Enhancement / Pre-Processing Filters**: Median filtering, Bilateral filtering, and Unsharp Masking Restoration, alongside a **Smart Adaptive Restoration Model** using a ResNet-18 convolutional encoder.
+- **Deep Learning Fine-Tuning**: Fine-tuning YOLO and DeepLabV3 models directly on multi-level distorted data using ground-truth and pseudo-labeled annotations.
 
 ---
 
@@ -31,7 +31,7 @@ In accordance with the project guidelines specified in `3002_CousreProject.pdf` 
 | **1. Datasets** | **COCO-2017 & ADE2K** | COCO-2017 provides 80 object classes for multi-instance detection; ADE2K provides 150 dense semantic categories. |
 | **2. Vision Tasks** | **Keypoint Detection, Object Detection, Semantic Segmentation** | Spans low-level spatial features, object localization, and dense pixel-level classification. |
 | **3. Metrics** | **Keypoint Match Ratio, Per-Class Recall, mIoU, SNR (dB)** | Quantitative metrics measuring spatial keypoint stability, bounding box recall per class, pixel IoU, and signal quality. |
-| **4. Algorithms & Models** | **ORB, YOLOv8n / YOLOv26n, DeepLabV3-ResNet50** | Combines ultra-fast classical corner/descriptor extraction with state-of-the-art CNN/Transformer architectures. |
+| **4. Algorithms & Models** | **ORB, YOLOv8n, DeepLabV3-ResNet50** | Combines ultra-fast classical corner/descriptor extraction with state-of-the-art CNN/Transformer architectures. |
 | **5. Distortions** | **Gaussian Noise, Salt & Pepper Noise, Motion Blur** | Sweeps additive noise ($\sigma \in [0, 100]$), impulse noise ($p \in [0.05, 0.50]$), and kernel blur ($k \in [1, 29]$). |
 | **6. Enhancements** | **Bilateral Filter, Median Filter, Restoration Filter** | Applied prior to model inference to suppress noise, preserve sharp structural edges, and sharpen blurred features. |
 
@@ -52,6 +52,7 @@ Before evaluating degradation, baseline performance was established on clean val
 
 ### 3.1 Mathematical Formulations & Signal-to-Noise Ratio (SNR)
 Distortion severity across all sweeps is quantified using Signal-to-Noise Ratio in decibels:
+
 $$\text{SNR}(\text{dB}) = 10 \log_{10} \left( \frac{\sum_{x,y,c} \mathbf{I}_{\text{clean}}(x,y,c)^2}{\sum_{x,y,c} (\mathbf{I}_{\text{clean}}(x,y,c) - \mathbf{I}_{\text{distorted}}(x,y,c))^2} \right)$$
 
 ---
@@ -97,7 +98,7 @@ The rubric strictly requires per-class evaluation across distortion intensities 
 | **`car`** | **1.000** | 0.833 | 0.656 | 0.522 | 0.367 | **0.133** |
 | **`chair`** | **1.000** | 0.904 | 0.726 | 0.507 | 0.164 | **0.041** |
 | **`cup`** | **1.000** | 0.865 | 0.811 | 0.514 | 0.243 | **0.081** |
-| **`dining table`**| **1.000** | 0.838 | 0.730 | 0.351 | 0.189 | **0.054** |
+| **`dining table`** | **1.000** | 0.838 | 0.730 | 0.351 | 0.189 | **0.054** |
 | **Overall Mean Recall** | **1.000** | **0.910** | **0.777** | **0.586** | **0.386** | **0.227** |
 
 #### B. Per-Class Recall Under Salt & Pepper Noise Sweep
@@ -108,7 +109,7 @@ The rubric strictly requires per-class evaluation across distortion intensities 
 | **`car`** | **1.000** | 0.600 | 0.489 | 0.256 | 0.111 | **0.033** |
 | **`chair`** | **1.000** | 0.397 | 0.288 | 0.205 | 0.110 | **0.027** |
 | **`cup`** | **1.000** | 0.324 | 0.270 | 0.054 | 0.000 | **0.000** |
-| **`dining table`**| **1.000** | 0.162 | 0.054 | 0.081 | 0.135 | **0.027** |
+| **`dining table`** | **1.000** | 0.162 | 0.054 | 0.081 | 0.135 | **0.027** |
 | **Overall Mean Recall** | **1.000** | **0.503** | **0.425** | **0.384** | **0.285** | **0.189** |
 
 #### C. Per-Class Recall Under Motion Blur Sweep
@@ -119,7 +120,7 @@ The rubric strictly requires per-class evaluation across distortion intensities 
 | **`car`** | **1.000** | 0.744 | 0.544 | 0.356 | 0.233 | **0.178** |
 | **`chair`** | **1.000** | 0.781 | 0.534 | 0.164 | 0.096 | **0.068** |
 | **`cup`** | **1.000** | 0.784 | 0.595 | 0.486 | 0.270 | **0.243** |
-| **`dining table`**| **1.000** | 0.892 | 0.757 | 0.541 | 0.270 | **0.135** |
+| **`dining table`** | **1.000** | 0.892 | 0.757 | 0.541 | 0.270 | **0.135** |
 | **Overall Mean Recall** | **1.000** | **0.829** | **0.686** | **0.545** | **0.432** | **0.314** |
 
 ![Task 2: YOLO Detection Recall Per-Class vs SNR](assets/task2_yolo_per_class_snr.png)
@@ -208,8 +209,10 @@ Below are rendered side-by-side comparison grids demonstrating model predictions
 
 ## 6. Summary & Recommendations
 
-1. **Class-Specific Sensitivity**: Smaller objects with fine structures (e.g. `cup`, `dining table`, `car`) experience drastic recall drops under noise, whereas larger structural categories (`person`, `chair`) maintain higher resilience.
+1. **Class-Specific Sensitivity**: Smaller objects with fine structures (e.g., `cup`, `dining table`, `car`) experience drastic recall drops under noise, whereas larger structural categories (`person`, `chair`) maintain relatively higher robustness.
+
 2. **Complementary Mitigation Strategies**:
    - **Impulse & Gaussian Noise**: Classical spatial filtering (Median and Bilateral filtering) provides superior noise suppression and detection/segmentation recovery.
    - **Motion Blur**: Fine-tuning deep neural networks directly on blurred domain representations yields the highest performance improvement across both object detection and semantic segmentation tasks.
+
 3. **Reproducibility**: All benchmark measurements, plots, and visual grids can be re-generated using `python generate_actual_metrics_and_plots.py`.
