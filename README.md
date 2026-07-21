@@ -212,7 +212,8 @@ Below are rendered side-by-side comparison grids demonstrating model predictions
 1. **Class-Specific Sensitivity**: Smaller objects with fine structures (e.g., `cup`, `dining table`, `car`) experience drastic recall drops under noise, whereas larger structural categories (`person`, `chair`) maintain relatively higher robustness.
 
 2. **Complementary Mitigation Strategies**:
-   - **Impulse & Gaussian Noise**: Classical spatial filtering (Median and Bilateral filtering) provides superior noise suppression and detection/segmentation recovery.
+   - **Gaussian Noise**: Classical spatial filtering (Median and Bilateral filtering) provides superior noise suppression and detection/segmentation recovery.
    - **Motion Blur**: Fine-tuning deep neural networks directly on blurred domain representations yields the highest performance improvement across both object detection and semantic segmentation tasks.
+   - **Salt & Pepper**: While in YOLO the fine tuned model prevails by a hair, in both YOLO and semantic segmentation, Median filter achieves outstanding results.
 
 3. **Reproducibility**: All benchmark measurements, plots, and visual grids can be re-generated using `python generate_actual_metrics_and_plots.py`.
