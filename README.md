@@ -80,7 +80,7 @@ Empirically measured ORB keypoint count and match ratio across the full range of
 | **Motion Blur** | Kernel $k = 21$ | 16.43 dB | 439.8 | 0.100 |
 | **Motion Blur** | Kernel $k = 29$ | 15.50 dB | 233.0 | **0.054** |
 
-*\*Note: ORB match ratio is computed via nearest-neighbor descriptor matching using Lowe's ratio test ($d_1 < 0.75 \cdot d_2$ in Hamming space) against clean baseline descriptors.*
+\* **Note:** ORB match ratio is computed via nearest-neighbor descriptor matching using Lowe's ratio test ($d_1 < 0.75 \cdot d_2$ in Hamming space) against clean baseline descriptors.
 
 ![Task 1: ORB Keypoint Degradation vs SNR](assets/task1_orb_degradation_snr.png)
 
