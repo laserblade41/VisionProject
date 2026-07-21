@@ -3,8 +3,9 @@
 **Course**: Image Processing / Vision Course Project (CS 3002)  
 **Repository**: `vision2`  
 **Datasets**: COCO-2017 & ADE2K Datasets  
-**Author / Team**: Computer Vision Research Group  
-
+**Author / Team**:
+Eran Guetta
+Omer Lazaros
 ---
 
 ## Executive Summary
